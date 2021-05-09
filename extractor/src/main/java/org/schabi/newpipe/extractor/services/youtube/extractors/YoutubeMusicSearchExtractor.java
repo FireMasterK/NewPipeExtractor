@@ -42,7 +42,7 @@ public class YoutubeMusicSearchExtractor extends SearchExtractor {
     public void onFetchPage(@Nonnull final Downloader downloader) throws IOException, ExtractionException {
         final String[] youtubeMusicKeys = YoutubeParsingHelper.getYoutubeMusicKeys();
 
-        final String url = "https://youtubei.googleapis.com/youtubei/v1/search?alt=json&key="
+        final String url = "https://music.youtube.com/youtubei/v1/search?alt=json&key="
                 + youtubeMusicKeys[0];
 
         final String params;
@@ -576,8 +576,8 @@ public class YoutubeMusicSearchExtractor extends SearchExtractor {
         final String continuation = nextContinuationData.getString("continuation");
         final String clickTrackingParams = nextContinuationData.getString("clickTrackingParams");
 
-        return new Page("https://youtubei.googleapis.com/youtubei/v1/search?ctoken="
-                + continuation + "&continuation=" + continuation + "&itct=" + clickTrackingParams
-                + "&alt=json" + "&key=" + YoutubeParsingHelper.getYoutubeMusicKeys()[0]);
+        return new Page("https://music.youtube.com/youtubei/v1/search?ctoken=" + continuation
+                + "&continuation=" + continuation + "&itct=" + clickTrackingParams + "&alt=json"
+                + "&key=" + YoutubeParsingHelper.getYoutubeMusicKeys()[0]);
     }
 }
