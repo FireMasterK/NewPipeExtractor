@@ -39,7 +39,8 @@ public class YoutubeMusicSearchExtractor extends SearchExtractor {
     }
 
     @Override
-    public void onFetchPage(@Nonnull final Downloader downloader) throws IOException, ExtractionException {
+    public void onFetchPage(@Nonnull final Downloader downloader) throws IOException,
+            ExtractionException {
         final String[] youtubeMusicKeys = YoutubeParsingHelper.getYoutubeMusicKeys();
 
         final String url = "https://music.youtube.com/youtubei/v1/search?alt=json&key="
@@ -192,7 +193,8 @@ public class YoutubeMusicSearchExtractor extends SearchExtractor {
     }
 
     @Override
-    public InfoItemsPage<InfoItem> getPage(final Page page) throws IOException, ExtractionException {
+    public InfoItemsPage<InfoItem> getPage(final Page page) throws IOException,
+            ExtractionException {
         if (page == null || isNullOrEmpty(page.getUrl())) {
             throw new IllegalArgumentException("Page doesn't contain an URL");
         }
@@ -348,7 +350,8 @@ public class YoutubeMusicSearchExtractor extends SearchExtractor {
                                         .getObject("musicResponsiveListItemFlexColumnRenderer")
                                         .getObject("text").getArray("runs").getObject(0);
 
-                                if (!navigationEndpointHolder.has("navigationEndpoint")) return null;
+                                if (!navigationEndpointHolder.has("navigationEndpoint"))
+                                    return null;
 
                                 final String url = getUrlFromNavigationEndpoint(
                                         navigationEndpointHolder.getObject("navigationEndpoint"));
@@ -566,7 +569,8 @@ public class YoutubeMusicSearchExtractor extends SearchExtractor {
         }
     }
 
-    private Page getNextPageFrom(final JsonArray continuations) throws ParsingException, IOException, ReCaptchaException {
+    private Page getNextPageFrom(final JsonArray continuations) throws ParsingException,
+            IOException, ReCaptchaException {
         if (isNullOrEmpty(continuations)) {
             return null;
         }
