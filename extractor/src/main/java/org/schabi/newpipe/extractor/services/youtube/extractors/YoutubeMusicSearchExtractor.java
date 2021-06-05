@@ -451,10 +451,12 @@ public class YoutubeMusicSearchExtractor extends SearchExtractor {
 
                         @Override
                         public long getSubscriberCount() throws ParsingException {
-                            final String subscriberCount = getTextFromObject(info
-                                    .getArray("flexColumns").getObject(2)
+                            final String subscriberCount = info.getArray("flexColumns")
+                                    .getObject(1)
                                     .getObject("musicResponsiveListItemFlexColumnRenderer")
-                                    .getObject("text"));
+                                    .getObject("text").getArray("runs")
+                                    .getObject(2)
+                                    .getString("text");
                             if (!isNullOrEmpty(subscriberCount)) {
                                 try {
                                     return Utils.mixedNumberWordToLong(subscriberCount);
