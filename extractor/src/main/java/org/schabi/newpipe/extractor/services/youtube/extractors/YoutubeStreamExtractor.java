@@ -111,7 +111,6 @@ public class YoutubeStreamExtractor extends StreamExtractor {
     private JsonObject videoPrimaryInfoRenderer;
     private JsonObject videoSecondaryInfoRenderer;
     private int ageLimit = -1;
-    private boolean isGetVideoInfoPlayerResponse = false;
     @Nullable
     private List<SubtitlesStream> subtitles = null;
 
@@ -742,33 +741,29 @@ public class YoutubeStreamExtractor extends StreamExtractor {
         // the video cannot be played outside of YouTube, but does not show the original message.
         JsonObject youtubePlayerResponse = playerResponse;
 
-        if (playerResponse == null || !playerResponse.has("streamingData")) {
-            // Try to get the player response by fetching video info page
-            fetchVideoInfoPage();
-        }
-
-        if (playerResponse == null && youtubePlayerResponse == null) {
+        if (playerResponse == null) {
             throw new ExtractionException("Could not get playerResponse");
-        } else if (youtubePlayerResponse == null) {
-            youtubePlayerResponse = playerResponse;
         }
 
         final JsonObject playabilityStatus = (playerResponse == null ? youtubePlayerResponse
                 : playerResponse).getObject("playabilityStatus");
 
-        checkPlayabilityStatus(youtubePlayerResponse, playabilityStatus);
+        boolean ageResticted = playabilityStatus.getString("reason", EMPTY_STRING).contains("age");
+
+        if(!playerResponse.has("streamingData") || ageResticted) {
+            fetchAndroidMobileEmbedJsonPlayer(contentCountry, localization, videoId);
+        }
+
+        if(streamingData == null && playerResponse.has("streamingData"))
+            streamingData = playerResponse.getObject("streamingData");
+
+        if(streamingData == null)
+           checkPlayabilityStatus(youtubePlayerResponse, playabilityStatus);
 
         nextResponse = getJsonPostResponse("next", body, localization);
 
-        // Workaround for rate limits on web streaming URLs.
-        // TODO: add ability to deobfuscate the n param of these URLs
-
-        // It's not needed to request the mobile API for age-restricted videos
-        if (!isGetVideoInfoPlayerResponse) {
+        if(!ageResticted)
             fetchAndroidMobileJsonPlayer(contentCountry, localization, videoId);
-        } else {
-            streamingData = playerResponse.getObject("streamingData");
-        }
     }
 
     private void checkPlayabilityStatus(final JsonObject youtubePlayerResponse,
@@ -871,20 +866,53 @@ public class YoutubeStreamExtractor extends StreamExtractor {
         }
     }
 
-    private void fetchVideoInfoPage() throws ParsingException, ReCaptchaException, IOException {
-        getStsFromPlayerJs();
-        final String videoInfoUrl = getVideoInfoUrl(getId(), sts);
-        final String infoPageResponse = NewPipe.getDownloader()
-                .get(videoInfoUrl, getExtractorLocalization()).responseBody();
-        videoInfoPage.putAll(Parser.compatParseMap(infoPageResponse));
-
+    /**
+     * Fetch the Android Mobile API as an Embed device or fallback to the desktop streams.
+     * If something went wrong when parsing this API, fallback to the desktop JSON player, fetched
+     * again if the {@code signatureTimestamp} of the JS player is unknown (because signatures
+     * without a {@code signatureTimestamp} included in the player request are invalid).
+     */
+    private void fetchAndroidMobileEmbedJsonPlayer(final ContentCountry contentCountry,
+                                              final Localization localization,
+                                              final String videoId) throws ExtractionException,
+            IOException {
+        JsonObject mobilePlayerResponse = null;
+        final byte[] mobileBody = JsonWriter.string(prepareMobileEmbedJsonBuilder(localization,
+                contentCountry)
+                .value("videoId", videoId)
+                .done())
+                .getBytes(UTF_8);
         try {
-            playerResponse = JsonParser.object().from(videoInfoPage.get("player_response"));
-        } catch (final JsonParserException e) {
-            throw new ParsingException(
-                    "Could not parse YouTube player response from video info page", e);
+            mobilePlayerResponse = getJsonMobilePostResponse("player", mobileBody,
+                    contentCountry, localization);
+        } catch (final Exception ignored) {
         }
-        isGetVideoInfoPlayerResponse = true;
+        if (mobilePlayerResponse != null && mobilePlayerResponse.has("streamingData")) {
+            final JsonObject mobileStreamingData = mobilePlayerResponse.getObject(
+                    "streamingData");
+            if (!isNullOrEmpty(mobileStreamingData)) {
+                playerResponse = mobilePlayerResponse;
+                streamingData = mobileStreamingData;
+            }
+        } else {
+            // Fallback to the desktop JSON player endpoint
+
+            // The cipher signatures from the player endpoint without a timestamp are invalid so
+            // download it again only if we didn't have a signatureTimestamp before fetching the
+            // data of this video (the sts string).
+            if (sts == null && isCipherProtectedContent()) {
+                getStsFromPlayerJs();
+                final JsonObject playerResponseWithSignatureTimestamp = getJsonPostResponse(
+                        "player", createPlayerBodyWithSts(localization, contentCountry, videoId),
+                        localization);
+                if (playerResponseWithSignatureTimestamp.has("streamingData")) {
+                    streamingData = playerResponseWithSignatureTimestamp.getObject(
+                            "streamingData");
+                }
+            } else {
+                streamingData = playerResponse.getObject("streamingData");
+            }
+        }
     }
 
     @Nonnull
@@ -908,42 +936,7 @@ public class YoutubeStreamExtractor extends StreamExtractor {
 
     private void storePlayerJs() throws ParsingException {
         try {
-            // The JavaScript player was not found in any page fetched so far and there is
-            // nothing cached, so try fetching embedded info.
-            // Don't provide a video id to get a smaller response (around 9Kb instead of 21 Kb
-            // with a video)
-            final String embedUrl = "https://www.youtube.com/embed/";
-            final String embedPageContent = NewPipe.getDownloader()
-                    .get(embedUrl, getExtractorLocalization()).responseBody();
-            try {
-                final String assetsPattern = "\"assets\":.+?\"js\":\\s*(\"[^\"]+\")";
-                playerJsUrl = Parser.matchGroup1(assetsPattern, embedPageContent)
-                        .replace("\\", "").replace("\"", "");
-            } catch (final Parser.RegexException ex) {
-                // playerJsUrl is still available in the file, just somewhere else TODO
-                // It is ok not to find it, see how that's handled in getDeobfuscationCode()
-                final Document doc = Jsoup.parse(embedPageContent);
-                final Elements elems = doc.select("script").attr("name", "player_ias/base");
-                for (final Element elem : elems) {
-                    if (elem.attr("src").contains("base.js")) {
-                        playerJsUrl = elem.attr("src");
-                        break;
-                    }
-                }
-            }
-
-            if (playerJsUrl != null) {
-                if (playerJsUrl.startsWith("//")) {
-                    playerJsUrl = HTTPS + playerJsUrl;
-                } else if (playerJsUrl.startsWith("/")) {
-                    // Sometimes https://www.youtube.com part has to be added manually
-                    playerJsUrl = HTTPS + "//www.youtube.com" + playerJsUrl;
-                }
-                playerCode = NewPipe.getDownloader().get(playerJsUrl, getExtractorLocalization())
-                        .responseBody();
-            } else {
-                throw new ExtractionException("Could not extract JS player URL");
-            }
+            playerCode = YoutubeJavaScriptExtractor.extractJavaScriptCode();
         } catch (final Exception e) {
             throw new ParsingException("Could not store JavaScript player", e);
         }
@@ -1112,14 +1105,6 @@ public class YoutubeStreamExtractor extends StreamExtractor {
 
         this.videoSecondaryInfoRenderer = videoSecondaryInfoRenderer;
         return videoSecondaryInfoRenderer;
-    }
-
-    @Nonnull
-    private static String getVideoInfoUrl(final String id, final String sts) {
-        // TODO: Try parsing embedded_player_response first
-        return "https://www.youtube.com/get_video_info?" + "video_id=" + id
-                + "&eurl=https://youtube.googleapis.com/v/" + id + "&sts=" + sts
-                + "&html5=1&c=TVHTML5&cver=6.20180913&hl=en&gl=US";
     }
 
     @Nonnull

@@ -845,6 +845,30 @@ public class YoutubeParsingHelper {
         // @formatter:on
     }
 
+    @Nonnull
+    public static JsonBuilder<JsonObject> prepareMobileEmbedJsonBuilder(@Nonnull final Localization
+                                                                           localization,
+                                                                   @Nonnull final ContentCountry
+                                                                           contentCountry) {
+        // @formatter:off
+        return JsonObject.builder()
+                .object("context")
+                .object("client")
+                .value("clientName", "ANDROID")
+                .value("clientVersion", MOBILE_YOUTUBE_CLIENT_VERSION)
+                .value("clientScreen", "EMBED")
+                .value("hl", localization.getLocalizationCode())
+                .value("gl", contentCountry.getCountryCode())
+                .end()
+                .object("user")
+                // TO DO: provide a way to enable restricted mode with:
+                // .value("enableSafetyMode", boolean)
+                .value("lockedSafetyMode", false)
+                .end()
+                .end();
+        // @formatter:on
+    }
+
     /**
      * Add required headers and cookies to an existing headers Map.
      * @see #addClientInfoHeaders(Map)
