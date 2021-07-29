@@ -151,7 +151,6 @@ public class YoutubeCommentsExtractor extends CommentsExtractor {
         final ContentCountry contentCountry = getExtractorContentCountry();
 
         final byte[] body = JsonWriter.string(prepareJsonBuilder(localization, contentCountry)
-                .value("videoId", getId())
                 .value("continuation", page.getId())
                 .done())
                 .getBytes(UTF_8);
