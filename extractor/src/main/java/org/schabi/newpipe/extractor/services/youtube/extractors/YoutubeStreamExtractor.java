@@ -41,6 +41,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.*;
 
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeDashManifestCreator.createDashManifestFromOtfStreamingUrl;
 import static org.schabi.newpipe.extractor.services.youtube.YoutubeDashManifestCreator.createDashManifestFromPostLiveStreamDvrStreamingUrl;
@@ -1190,6 +1191,8 @@ public class YoutubeStreamExtractor extends StreamExtractor {
         return contentsAndItagItems;
     }
 
+    private static final ExecutorService es = Executors.newCachedThreadPool();
+
     @Nonnull
     private List<ContentAndItagItemAndIsUrl> getStreamsFromStreamingDataKey(
             final JsonObject streamingData,
@@ -1202,105 +1205,124 @@ public class YoutubeStreamExtractor extends StreamExtractor {
             final YoutubeThrottlingDecrypter throttlingDecrypter = new YoutubeThrottlingDecrypter(
                     getId());
             final JsonArray formats = streamingData.getArray(streamingDataKey);
+
+            List<Callable<Void>> callables = new ArrayList<>();
+
             for (int i = 0; i != formats.size(); ++i) {
-                final JsonObject formatData = formats.getObject(i);
-                int itag = formatData.getInt("itag");
+                final int index = i;
+                callables.add(() -> {
+                    final JsonObject formatData = formats.getObject(index);
+                    int itag = formatData.getInt("itag");
 
-                if (ItagItem.isSupported(itag)) {
-                    try {
-                        final ItagItem itagItem = ItagItem.getItag(itag);
-                        final ItagItem.ItagType itagType = itagItem.itagType;
-                        if (itagType == itagTypeWanted) {
-                            String streamUrl;
-                            if (formatData.has("url")) {
-                                streamUrl = formatData.getString("url");
-                            } else {
-                                // This url has an obfuscated signature
-                                final String cipherString = formatData.has("cipher")
-                                        ? formatData.getString("cipher")
-                                        : formatData.getString("signatureCipher");
-                                final Map<String, String> cipher = Parser.compatParseMap(
-                                        cipherString);
-                                streamUrl = cipher.get("url") + "&" + cipher.get("sp") + "="
-                                        + deobfuscateSignature(cipher.get("s"));
-                            }
-                            streamUrl = throttlingDecrypter.apply(streamUrl);
+                    if (ItagItem.isSupported(itag)) {
+                        try {
+                            final ItagItem itagItem = ItagItem.getItag(itag);
+                            final ItagItem.ItagType itagType = itagItem.itagType;
+                            if (itagType == itagTypeWanted) {
+                                String streamUrl;
+                                if (formatData.has("url")) {
+                                    streamUrl = formatData.getString("url");
+                                } else {
+                                    // This url has an obfuscated signature
+                                    final String cipherString = formatData.has("cipher")
+                                            ? formatData.getString("cipher")
+                                            : formatData.getString("signatureCipher");
+                                    final Map<String, String> cipher = Parser.compatParseMap(
+                                            cipherString);
+                                    streamUrl = cipher.get("url") + "&" + cipher.get("sp") + "="
+                                            + deobfuscateSignature(cipher.get("s"));
+                                }
+                                streamUrl = throttlingDecrypter.apply(streamUrl);
 
-                            final JsonObject initRange = formatData.getObject("initRange");
-                            final JsonObject indexRange = formatData.getObject("indexRange");
-                            final String mimeType = formatData.getString("mimeType", EMPTY_STRING);
-                            final String codec = mimeType.contains("codecs")
-                                    ? mimeType.split("\"")[1] : EMPTY_STRING;
+                                final JsonObject initRange = formatData.getObject("initRange");
+                                final JsonObject indexRange = formatData.getObject("indexRange");
+                                final String mimeType = formatData.getString("mimeType", EMPTY_STRING);
+                                final String codec = mimeType.contains("codecs")
+                                        ? mimeType.split("\"")[1] : EMPTY_STRING;
 
-                            itagItem.setBitrate(formatData.getInt("bitrate"));
-                            itagItem.setWidth(formatData.getInt("width"));
-                            itagItem.setHeight(formatData.getInt("height"));
-                            itagItem.setInitStart(Integer.parseInt(initRange.getString("start",
-                                    "-1")));
-                            itagItem.setInitEnd(Integer.parseInt(initRange.getString("end",
-                                    "-1")));
-                            itagItem.setIndexStart(Integer.parseInt(indexRange.getString("start",
-                                    "-1")));
-                            itagItem.setIndexEnd(Integer.parseInt(indexRange.getString("end",
-                                    "-1")));
-                            itagItem.setQuality(formatData.getString("quality"));
-                            itagItem.setCodec(codec);
+                                itagItem.setBitrate(formatData.getInt("bitrate"));
+                                itagItem.setWidth(formatData.getInt("width"));
+                                itagItem.setHeight(formatData.getInt("height"));
+                                itagItem.setInitStart(Integer.parseInt(initRange.getString("start",
+                                        "-1")));
+                                itagItem.setInitEnd(Integer.parseInt(initRange.getString("end",
+                                        "-1")));
+                                itagItem.setIndexStart(Integer.parseInt(indexRange.getString("start",
+                                        "-1")));
+                                itagItem.setIndexEnd(Integer.parseInt(indexRange.getString("end",
+                                        "-1")));
+                                itagItem.setQuality(formatData.getString("quality"));
+                                itagItem.setCodec(codec);
 
-                            if (itagType == ItagItem.ItagType.VIDEO || itagType == ItagItem.ItagType.VIDEO_ONLY) {
-                                itagItem.fps = formatData.getInt("fps");
-                            }
-                            if (itagType == ItagItem.ItagType.AUDIO) {
-                                itagItem.sampleRate = Integer.parseInt(formatData.getString("audioSampleRate"));
-                            }
+                                if (itagType == ItagItem.ItagType.VIDEO || itagType == ItagItem.ItagType.VIDEO_ONLY) {
+                                    itagItem.fps = formatData.getInt("fps");
+                                }
+                                if (itagType == ItagItem.ItagType.AUDIO) {
+                                    itagItem.sampleRate = Integer.parseInt(formatData.getString("audioSampleRate"));
+                                }
 
-                            if (streamType == StreamType.VIDEO_STREAM) {
-                                if (formatData.getString("type", EMPTY_STRING)
-                                        .equalsIgnoreCase("FORMAT_STREAM_TYPE_OTF")) {
+                                if (streamType == StreamType.VIDEO_STREAM) {
+                                    if (formatData.getString("type", EMPTY_STRING)
+                                            .equalsIgnoreCase("FORMAT_STREAM_TYPE_OTF")) {
+                                        try {
+                                            final String content =
+                                                    createDashManifestFromOtfStreamingUrl(streamUrl,
+                                                            itagItem);
+                                            contentsAndItagItemsAndAreUrls.add(
+                                                    new ContentAndItagItemAndIsUrl(content, itagItem,
+                                                            false));
+                                        } catch (final YoutubeDashManifestCreator
+                                                .YoutubeDashManifestCreationException ignored) {
+                                            // Something went wrong when generating the DASH manifest
+                                            // of the OTF stream, don't add this stream to the stream
+                                            // list
+                                        }
+                                    } else {
+                                        contentsAndItagItemsAndAreUrls.add(
+                                                new ContentAndItagItemAndIsUrl(streamUrl, itagItem,
+                                                        true));
+                                    }
+                                } else if (streamType == StreamType.POST_LIVE_STREAM) {
                                     try {
                                         final String content =
-                                                createDashManifestFromOtfStreamingUrl(streamUrl,
-                                                        itagItem);
+                                                createDashManifestFromPostLiveStreamDvrStreamingUrl(
+                                                        streamUrl, itagItem, formatData
+                                                                .getInt("targetDurationSec"));
                                         contentsAndItagItemsAndAreUrls.add(
                                                 new ContentAndItagItemAndIsUrl(content, itagItem,
                                                         false));
                                     } catch (final YoutubeDashManifestCreator
                                             .YoutubeDashManifestCreationException ignored) {
                                         // Something went wrong when generating the DASH manifest
-                                        // of the OTF stream, don't add this stream to the stream
-                                        // list
+                                        // of the stream, don't add this stream to the stream list
                                     }
                                 } else {
+                                    // We are currently not able to generate DASH manifests for running
+                                    // livestreams, so because of the requirements of StreamInfo
+                                    // objects, return these streams as DASH streams
+                                    // (even if they are not playable).
                                     contentsAndItagItemsAndAreUrls.add(
                                             new ContentAndItagItemAndIsUrl(streamUrl, itagItem,
                                                     true));
                                 }
-                            } else if (streamType == StreamType.POST_LIVE_STREAM) {
-                                try {
-                                    final String content =
-                                            createDashManifestFromPostLiveStreamDvrStreamingUrl(
-                                                    streamUrl, itagItem, formatData
-                                                            .getInt("targetDurationSec"));
-                                    contentsAndItagItemsAndAreUrls.add(
-                                            new ContentAndItagItemAndIsUrl(content, itagItem,
-                                                    false));
-                                } catch (final YoutubeDashManifestCreator
-                                        .YoutubeDashManifestCreationException ignored) {
-                                    // Something went wrong when generating the DASH manifest
-                                    // of the stream, don't add this stream to the stream list
-                                }
-                            } else {
-                                // We are currently not able to generate DASH manifests for running
-                                // livestreams, so because of the requirements of StreamInfo
-                                // objects, return these streams as DASH streams
-                                // (even if they are not playable).
-                                contentsAndItagItemsAndAreUrls.add(
-                                        new ContentAndItagItemAndIsUrl(streamUrl, itagItem,
-                                                true));
                             }
+                        } catch (final UnsupportedEncodingException | ParsingException ignored) {
                         }
-                    } catch (final UnsupportedEncodingException | ParsingException ignored) {
+                    }
+                    return null;
+                });
+            }
+
+            try {
+                for(Future<?> future : es.invokeAll(callables)) {
+                    try {
+                        future.get();
+                    } catch (InterruptedException | ExecutionException e) {
+                        e.printStackTrace();
                     }
                 }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
         }
 
