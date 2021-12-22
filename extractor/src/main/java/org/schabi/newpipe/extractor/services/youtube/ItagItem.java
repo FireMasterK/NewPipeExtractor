@@ -58,7 +58,7 @@ public class ItagItem {
             new ItagItem(266, VIDEO_ONLY, MPEG_4, "2160p"),
             new ItagItem(402, VIDEO_ONLY, MPEG_4, "4320p"), // can be 4320p60 as well
             new ItagItem(571, VIDEO_ONLY, MPEG_4, "4320p"), // can be 4320p60 HDR as well (1La4QzGeaaQ)
-            new ItagItem(402, VIDEO_ONLY, MPEG_4, "4320p60"),
+            new ItagItem(402, VIDEO_ONLY, MPEG_4, "4320p60", 60),
 
             new ItagItem(278, VIDEO_ONLY, WEBM, "144p"),
             new ItagItem(242, VIDEO_ONLY, WEBM, "240p"),
