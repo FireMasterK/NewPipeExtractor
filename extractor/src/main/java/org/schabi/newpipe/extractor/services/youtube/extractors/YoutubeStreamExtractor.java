@@ -1113,6 +1113,9 @@ public class YoutubeStreamExtractor extends StreamExtractor {
                 final String qualityLabel = formatData.getString("qualityLabel");
                 final String mimeType = formatData.getString("mimeType", EMPTY_STRING);
 
+                if(mimeType.startsWith("text"))
+                    continue;
+
                 try {
                     final ItagItem itagItem = ItagItem.getItag(itag, averageBitrate, fps, qualityLabel, mimeType);
                     if (itagItem.itagType == itagTypeWanted) {
