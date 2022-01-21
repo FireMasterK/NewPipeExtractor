@@ -134,7 +134,9 @@ public class ItagItem {
         if (itagType == null || format == null)
             throw new ParsingException("Unknown mimeType: " + mimeType);
 
-        return itagType == AUDIO ? new ItagItem(itagId, itagType, format, Math.round(averageBitrate / 1024f)) : new ItagItem(itagId, itagType, format, qualityLabel, fps);
+        return itagType == AUDIO ?
+                new ItagItem(itagId, itagType, format, Math.round(averageBitrate / 1024f)) :
+                new ItagItem(itagId, itagType, format, qualityLabel, fps);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
