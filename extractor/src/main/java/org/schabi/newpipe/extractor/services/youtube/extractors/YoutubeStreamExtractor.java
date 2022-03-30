@@ -1225,13 +1225,18 @@ public class YoutubeStreamExtractor extends StreamExtractor {
         for (int i = 0; i < formats.size(); i++) {
             final JsonObject formatData = formats.getObject(i);
             final int itag = formatData.getInt("itag");
+            final int averageBitrate = formatData.getInt("averageBitrate");
+            final int fps = formatData.getInt("fps");
+            final String qualityLabel = formatData.getString("qualityLabel");
+            final String mimeType = formatData.getString("mimeType", EMPTY_STRING);
 
-            if (!ItagItem.isSupported(itag)) {
+            if (mimeType.startsWith("text")) {
                 continue;
             }
 
             try {
-                final ItagItem itagItem = ItagItem.getItag(itag);
+                final ItagItem itagItem = ItagItem.
+                        getItag(itag, averageBitrate, fps, qualityLabel, mimeType);
                 if (itagItem.itagType != itagTypeWanted) {
                     continue;
                 }
@@ -1258,7 +1263,6 @@ public class YoutubeStreamExtractor extends StreamExtractor {
 
                 final JsonObject initRange = formatData.getObject("initRange");
                 final JsonObject indexRange = formatData.getObject("indexRange");
-                final String mimeType = formatData.getString("mimeType", EMPTY_STRING);
                 final String codec = mimeType.contains("codecs")
                         ? mimeType.split("\"")[1]
                         : EMPTY_STRING;
