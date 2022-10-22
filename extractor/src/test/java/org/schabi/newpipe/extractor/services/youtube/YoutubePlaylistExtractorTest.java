@@ -29,6 +29,11 @@ import org.schabi.newpipe.extractor.stream.StreamInfoItem;
 
 import java.io.IOException;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.schabi.newpipe.extractor.ExtractorAsserts.assertIsSecureUrl;
+import static org.schabi.newpipe.extractor.ServiceList.YouTube;
+import static org.schabi.newpipe.extractor.services.DefaultTests.*;
+
 /**
  * Test for {@link YoutubePlaylistExtractor}
  */
