@@ -107,10 +107,16 @@ public class YoutubeStreamInfoItemExtractor implements StreamInfoItemExtractor {
 
     @Override
     public String getName() throws ParsingException {
-        final String name = getTextFromObject(videoInfo.getObject("title"));
+        String name = getTextFromObject(videoInfo.getObject("title"));
         if (!isNullOrEmpty(name)) {
             return name;
         }
+
+        name = getTextFromObject(videoInfo.getObject("headline"));
+        if (!isNullOrEmpty(name)) {
+            return name;
+        }
+
         throw new ParsingException("Could not get name");
     }
 
@@ -131,7 +137,17 @@ public class YoutubeStreamInfoItemExtractor implements StreamInfoItemExtractor {
             }
 
             if (isNullOrEmpty(duration)) {
-                throw new ParsingException("Could not get duration");
+                // Duration of short videos in channel tab
+                // example: "simple is best - 49 seconds - play video"
+                final String accessibilityLabel =  videoInfo.getObject("accessibility")
+                        .getObject("accessibilityData").getString("label");
+                final String[] labelParts = accessibilityLabel.split(" \u2013 ");
+
+                if (labelParts.length > 2) {
+                    duration = labelParts[labelParts.length - 2];
+                } else {
+                    throw new ParsingException("Could not get duration");
+                }
             }
         }
 
