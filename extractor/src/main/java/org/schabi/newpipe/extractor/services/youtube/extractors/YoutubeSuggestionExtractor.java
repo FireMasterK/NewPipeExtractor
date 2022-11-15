@@ -1,13 +1,8 @@
 package org.schabi.newpipe.extractor.services.youtube.extractors;
 
-import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper.getCookieHeader;
-import static org.schabi.newpipe.extractor.utils.Utils.UTF_8;
-import static org.schabi.newpipe.extractor.utils.Utils.isNullOrEmpty;
-
 import com.grack.nanojson.JsonArray;
 import com.grack.nanojson.JsonParser;
 import com.grack.nanojson.JsonParserException;
-
 import org.schabi.newpipe.extractor.NewPipe;
 import org.schabi.newpipe.extractor.StreamingService;
 import org.schabi.newpipe.extractor.downloader.Response;
@@ -17,14 +12,14 @@ import org.schabi.newpipe.extractor.suggestion.SuggestionExtractor;
 import org.schabi.newpipe.extractor.utils.Utils;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.net.URLEncoder;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+
+import static org.schabi.newpipe.extractor.utils.Utils.isNullOrEmpty;
 
 /*
  * Created by Christian Schabesberger on 28.09.16.
@@ -54,7 +49,7 @@ public class YoutubeSuggestionExtractor extends SuggestionExtractor {
 
     @Override
     public List<String> suggestionList(final String query) throws IOException, ExtractionException {
-        final String url = "https://suggestqueries-clients6.youtube.com/complete/search"
+        String url = "https://suggestqueries-clients6.youtube.com/complete/search"
                 + "?client=" + "youtube"
                 + "&ds=" + "yt"
                 + "&gl=" + Utils.encodeUrlUtf8(getExtractorContentCountry().getCountryCode())
@@ -64,12 +59,37 @@ public class YoutubeSuggestionExtractor extends SuggestionExtractor {
         final Map<String, List<String>> headers = new HashMap<>();
         headers.put("Origin", Collections.singletonList("https://www.youtube.com"));
         headers.put("Referer", Collections.singletonList("https://www.youtube.com"));
-
-        final Response response = NewPipe.getDownloader()
+        Response response = NewPipe.getDownloader()
                 .get(url, headers, getExtractorLocalization());
 
-        final String contentTypeHeader = response.getHeader("Content-Type");
+        String contentTypeHeader = response.getHeader("Content-Type");
         if (isNullOrEmpty(contentTypeHeader) || !contentTypeHeader.contains("application/json")) {
+
+            url = "https://suggestqueries.google.com/complete/search"
+                    + "?client=" + "youtube" //"firefox" for JSON, 'toolbar' for xml
+                    + "&jsonp=" + "JP"
+                    + "&ds=" + "yt"
+                    + "&gl=" + Utils.encodeUrlUtf8(getExtractorContentCountry().getCountryCode())
+                    + "&q=" + Utils.encodeUrlUtf8(query)
+                    + "&xhr=t";
+
+                    System.out.println(url);
+
+            response = NewPipe.getDownloader()
+                    .get(url, headers, getExtractorLocalization());
+
+            String responseBody = response.responseBody();
+            responseBody = responseBody.substring(3, responseBody.length() - 1);
+
+            System.out.println(responseBody);
+
+            contentTypeHeader = response.getHeader("Content-Type");
+            if (!isNullOrEmpty(contentTypeHeader)
+                    && contentTypeHeader.contains("text/javascript")) {
+
+                return collectSuggestions(responseBody);
+            }
+
             throw new ExtractionException("Invalid response type (got \""
                     + contentTypeHeader + "\", excepted a JSON response");
         }
@@ -80,6 +100,10 @@ public class YoutubeSuggestionExtractor extends SuggestionExtractor {
             throw new ExtractionException("Empty response received");
         }
 
+        return collectSuggestions(responseBody);
+    }
+
+    private List<String> collectSuggestions(final String responseBody) throws ParsingException {
         try {
             final JsonArray suggestions = JsonParser.array()
                     .from(responseBody)
