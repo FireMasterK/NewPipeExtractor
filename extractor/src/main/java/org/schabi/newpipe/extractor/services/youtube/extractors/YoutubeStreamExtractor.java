@@ -126,6 +126,10 @@ public class YoutubeStreamExtractor extends StreamExtractor {
     @Nullable
     private static String playerCode = null;
 
+    private static boolean deobfuscationCodeExtractionFailed = false;
+
+    private static final Object PLAYER_CODE_LOCK = new Object();
+
     private static boolean isAndroidClientFetchForced = false;
     private static boolean isIosClientFetchForced = false;
 
@@ -1147,18 +1151,26 @@ public class YoutubeStreamExtractor extends StreamExtractor {
 
             return helperObject + deobfuscateFunction + callerFunction;
         } catch (final Exception e) {
+            deobfuscationCodeExtractionFailed = true;
             throw new DeobfuscateException("Could not parse deobfuscate function ", e);
         }
     }
 
     @Nonnull
     private static String getDeobfuscationCode() throws ParsingException {
-        if (cachedDeobfuscationCode == null) {
-            if (isNullOrEmpty(playerCode)) {
-                throw new ParsingException("playerCode is null");
-            }
+        synchronized (PLAYER_CODE_LOCK) {
+            if (cachedDeobfuscationCode == null) {
+                if (isNullOrEmpty(playerCode)) {
+                    throw new ParsingException("playerCode is null");
+                }
 
-            cachedDeobfuscationCode = loadDeobfuscationCode();
+                if (!deobfuscationCodeExtractionFailed) {
+                    cachedDeobfuscationCode = loadDeobfuscationCode();
+                }
+            }
+        }
+        if (cachedDeobfuscationCode == null) {
+            throw new ParsingException("Could not get deobfuscation code");
         }
         return cachedDeobfuscationCode;
     }
