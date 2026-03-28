@@ -38,10 +38,12 @@ import static org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper
 
 public final class YoutubeStreamHelper {
 
+        private static final String HTML5_PREFERENCE = "HTML5_PREF_WANTS";
+        private static final String BASE_YT_URL = "https://www.youtube.com";
+        private static final String BASE_YT_DESKTOP_WATCH_URL = BASE_YT_URL + "/watch?v=";
     private static final String PLAYER = "player";
     private static final String SERVICE_INTEGRITY_DIMENSIONS = "serviceIntegrityDimensions";
     private static final String PO_TOKEN = "poToken";
-    private static final String BASE_YT_DESKTOP_WATCH_URL = "https://www.youtube.com/watch?v=";
 
     private YoutubeStreamHelper() {
     }
@@ -80,6 +82,44 @@ public final class YoutubeStreamHelper {
     }
 
     @Nonnull
+    public static JsonObject getWebPlayerResponse(
+            @Nonnull final Localization localization,
+            @Nonnull final ContentCountry contentCountry,
+            @Nonnull final String videoId,
+            @Nonnull final String cpn,
+            @Nullable final PoTokenResult webPoTokenResult,
+            final int signatureTimestamp) throws IOException, ExtractionException {
+        final InnertubeClientRequestInfo innertubeClientRequestInfo =
+                InnertubeClientRequestInfo.ofWebClient();
+        innertubeClientRequestInfo.clientInfo.clientVersion = getClientVersion();
+
+        final Map<String, List<String>> headers = getYouTubeHeaders();
+
+        innertubeClientRequestInfo.clientInfo.visitorData = webPoTokenResult == null
+                ? YoutubeParsingHelper.getVisitorDataFromInnertube(innertubeClientRequestInfo,
+                        localization, contentCountry, headers, YOUTUBEI_V1_URL, null, false)
+                : webPoTokenResult.visitorData;
+
+        final JsonBuilder<JsonObject> builder = prepareJsonBuilder(localization, contentCountry,
+                innertubeClientRequestInfo, null);
+
+        addVideoIdCpnAndOkChecks(builder, videoId, cpn);
+        addPlaybackContext(builder, BASE_YT_DESKTOP_WATCH_URL + videoId,
+                signatureTimestamp, null);
+
+        if (webPoTokenResult != null) {
+            addPoToken(builder, webPoTokenResult.playerRequestPoToken);
+        }
+
+        final byte[] body = JsonWriter.string(builder.done())
+                .getBytes(StandardCharsets.UTF_8);
+        final String url = YOUTUBEI_V1_URL + PLAYER + "?" + DISABLE_PRETTY_PRINT_PARAMETER;
+
+        return JsonUtils.toJsonObject(getValidJsonResponseBody(
+                getDownloader().postWithContentTypeJson(url, headers, body, localization)));
+    }
+
+    @Nonnull
     public static JsonObject getWebEmbeddedPlayerResponse(
             @Nonnull final Localization localization,
             @Nonnull final ContentCountry contentCountry,
@@ -90,11 +130,19 @@ public final class YoutubeStreamHelper {
         final InnertubeClientRequestInfo innertubeClientRequestInfo =
                 InnertubeClientRequestInfo.ofWebEmbeddedPlayerClient();
 
+        final String webEmbeddedPlayerEmbedder =
+                YoutubeParsingHelper.getRandomWebEmbeddedPlayerReferer();
+        final String embedUrl = webEmbeddedPlayerEmbedder;
+        final String refererUrl = YoutubeParsingHelper.buildWebEmbeddedPlayerRefererUrl(
+                videoId, webEmbeddedPlayerEmbedder);
+        final String originUrl = BASE_YT_URL;
+
         final Map<String, List<String>> headers = new HashMap<>(
                 getClientHeaders(WEB_EMBEDDED_CLIENT_ID, WEB_EMBEDDED_CLIENT_VERSION));
-        headers.putAll(getOriginReferrerHeaders("https://www.youtube.com"));
+        headers.putAll(getOriginReferrerHeaders(originUrl, refererUrl));
 
-        final String embedUrl = BASE_YT_DESKTOP_WATCH_URL + videoId;
+        final String encryptedHostFlags = YoutubeParsingHelper.fetchWebEmbeddedEncryptedHostFlags(
+                videoId, originUrl, refererUrl);
 
         // We must always pass a valid visitorData to get valid player responses, which needs to be
         // got from YouTube
@@ -107,8 +155,7 @@ public final class YoutubeStreamHelper {
                 innertubeClientRequestInfo, embedUrl);
 
         addVideoIdCpnAndOkChecks(builder, videoId, cpn);
-
-        addPlaybackContext(builder, embedUrl, signatureTimestamp);
+        addPlaybackContext(builder, refererUrl, signatureTimestamp, encryptedHostFlags);
 
         if (webEmbeddedPoTokenResult != null) {
             addPoToken(builder, webEmbeddedPoTokenResult.playerRequestPoToken);
@@ -243,12 +290,19 @@ public final class YoutubeStreamHelper {
 
     private static void addPlaybackContext(@Nonnull final JsonBuilder<JsonObject> builder,
                                            @Nonnull final String referer,
-                                           final int signatureTimestamp) {
+                                           final int signatureTimestamp,
+                                           @Nullable final String encryptedHostFlags) {
         builder.object("playbackContext")
                 .object("contentPlaybackContext")
+                .value("html5Preference", HTML5_PREFERENCE)
                 .value("signatureTimestamp", signatureTimestamp)
-                .value("referer", referer)
-                .end()
+                .value("referer", referer);
+
+        if (encryptedHostFlags != null) {
+            builder.value("encryptedHostFlags", encryptedHostFlags);
+        }
+
+        builder.end()
                 .end();
     }
 

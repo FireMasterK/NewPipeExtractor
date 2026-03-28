@@ -67,6 +67,7 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -100,6 +101,16 @@ public final class YoutubeParsingHelper {
      * The base URL of YouTube Music.
      */
     private static final String YOUTUBE_MUSIC_URL = "https://music.youtube.com";
+
+    /**
+     * Valid non-YouTube embedder URLs for {@code WEB_EMBEDDED_PLAYER} requests.
+     */
+    public static final String[] WEB_EMBEDDED_PLAYER_REFERERS = {
+            "https://www.reddit.com/",
+            "https://www.quora.com/",
+            "https://x.com/",
+            "https://web.whatsapp.com"
+    };
 
     /**
      * A parameter to disable pretty-printed response of InnerTube requests, to reduce response
@@ -165,6 +176,9 @@ public final class YoutubeParsingHelper {
     private static final String[] INITIAL_DATA_REGEXES =
             {"window\\[\"ytInitialData\"\\]\\s*=\\s*(\\{.*?\\});",
                     "var\\s*ytInitialData\\s*=\\s*(\\{.*?\\});"};
+    private static final String[] EMBED_INITIAL_DATA_REGEXES = {
+            "(?s)window\\.ytcfg\\.set\\s*\\(\\s*(\\{.*?\\})\\s*\\);",
+            "(?s)ytcfg\\.set\\s*\\(\\s*(\\{.*?\\})\\s*\\);"};
 
     private static final String CONTENT_PLAYBACK_NONCE_ALPHABET =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -333,7 +347,7 @@ public final class YoutubeParsingHelper {
     /**
      * @param playlistId the playlist id to parse
      * @return the {@link PlaylistInfo.PlaylistType} extracted from the playlistId (mix playlist
-     *         types included)
+     * types included)
      * @throws ParsingException if the playlistId is null or empty, if the playlistId is not a mix,
      *                          if it is a mix but it's not based on a specific stream (this is the
      *                          case for channel or genre mixes)
@@ -361,7 +375,7 @@ public final class YoutubeParsingHelper {
                 // 11 characters then it can't be a video id, hence we are dealing with a different
                 // type of mix (e.g. genre mixes handled above, of the form RDGMEM{garbage})
                 throw new ParsingException("Video id could not be determined from mix id: "
-                    + playlistId);
+                        + playlistId);
             }
             return playlistId.substring(2);
 
@@ -400,7 +414,7 @@ public final class YoutubeParsingHelper {
     /**
      * @param playlistUrl the playlist url to parse
      * @return the {@link PlaylistInfo.PlaylistType} extracted from the playlistUrl's list param
-     *         (mix playlist types included)
+     * (mix playlist types included)
      * @throws ParsingException if the playlistUrl is malformed, if has no list param or if the list
      *                          param is empty
      */
@@ -420,6 +434,15 @@ public final class YoutubeParsingHelper {
                     INITIAL_DATA_REGEXES, 1));
         } catch (final JsonParserException | Parser.RegexException e) {
             throw new ParsingException("Could not get ytInitialData", e);
+        }
+    }
+
+    private static JsonObject getEmbedInitialData(final String html) throws ParsingException {
+        try {
+            return JsonParser.object().from(getStringResultFromRegexArray(html,
+                    EMBED_INITIAL_DATA_REGEXES, 1));
+        } catch (final JsonParserException | Parser.RegexException e) {
+            throw new ParsingException("Could not get embed initial data", e);
         }
     }
 
@@ -477,7 +500,7 @@ public final class YoutubeParsingHelper {
             return;
         }
         final String url = "https://www.youtube.com/sw.js";
-        final var headers = getOriginReferrerHeaders("https://www.youtube.com");
+        final var headers = getOriginReferrerHeaders("https://www.youtube.com/");
         final String response = getDownloader().get(url, headers).responseBody();
         try {
             clientVersion = getStringResultFromRegexArray(response,
@@ -530,7 +553,7 @@ public final class YoutubeParsingHelper {
             throw new ParsingException(
                     // CHECKSTYLE:OFF
                     "Could not extract YouTube WEB InnerTube client version from HTML search results page");
-                    // CHECKSTYLE:ON
+            // CHECKSTYLE:ON
         }
 
         clientVersionExtracted = true;
@@ -648,7 +671,7 @@ public final class YoutubeParsingHelper {
             .end().done().getBytes(StandardCharsets.UTF_8);
         // @formatter:on
 
-        final var headers = new HashMap<>(getOriginReferrerHeaders(YOUTUBE_MUSIC_URL));
+        final var headers = new HashMap<>(getOriginReferrerHeaders(YOUTUBE_MUSIC_URL + "/"));
         headers.putAll(getClientHeaders(WEB_REMIX_CLIENT_ID, WEB_HARDCODED_CLIENT_VERSION));
 
         final Response response = getDownloader().postWithContentTypeJson(url, headers, json);
@@ -668,7 +691,7 @@ public final class YoutubeParsingHelper {
 
         try {
             final String url = "https://music.youtube.com/sw.js";
-            final var headers = getOriginReferrerHeaders(YOUTUBE_MUSIC_URL);
+            final var headers = getOriginReferrerHeaders(YOUTUBE_MUSIC_URL + "/");
             final String response = getDownloader().get(url, headers).responseBody();
 
             youtubeMusicClientVersion = getStringResultFromRegexArray(response,
@@ -745,7 +768,7 @@ public final class YoutubeParsingHelper {
             if (navigationEndpoint.getObject("watchEndpoint").has("startTimeSeconds")) {
                 url.append("&t=")
                         .append(navigationEndpoint.getObject("watchEndpoint")
-                        .getInt("startTimeSeconds"));
+                                .getInt("startTimeSeconds"));
             }
             return url.toString();
         }
@@ -759,13 +782,13 @@ public final class YoutubeParsingHelper {
         if (navigationEndpoint.has("showDialogCommand")) {
             try {
                 final JsonArray listItems = JsonUtils.getArray(navigationEndpoint,
-                    "showDialogCommand.panelLoadingStrategy.inlineContent.dialogViewModel"
-                    + ".customContent.listViewModel.listItems");
+                        "showDialogCommand.panelLoadingStrategy.inlineContent.dialogViewModel"
+                                + ".customContent.listViewModel.listItems");
 
                 // the first item seems to always be the channel that actually uploaded the video,
                 // i.e. it appears in their video feed
                 final JsonObject command = JsonUtils.getObject(listItems.getObject(0),
-                    "listItemViewModel.rendererContext.commandContext.onTap.innertubeCommand");
+                        "listItemViewModel.rendererContext.commandContext.onTap.innertubeCommand");
                 return getUrlFromNavigationEndpoint(command);
             } catch (final ParsingException p) {
             }
@@ -1120,7 +1143,7 @@ public final class YoutubeParsingHelper {
      */
     @Nonnull
     public static Map<String, List<String>> getYoutubeMusicHeaders() {
-        final var headers = new HashMap<>(getOriginReferrerHeaders(YOUTUBE_MUSIC_URL));
+        final var headers = new HashMap<>(getOriginReferrerHeaders(YOUTUBE_MUSIC_URL + "/"));
         headers.putAll(getClientHeaders(WEB_REMIX_CLIENT_ID, youtubeMusicClientVersion));
         return headers;
     }
@@ -1142,7 +1165,7 @@ public final class YoutubeParsingHelper {
      */
     public static Map<String, List<String>> getClientInfoHeaders()
             throws ExtractionException, IOException {
-        final var headers = new HashMap<>(getOriginReferrerHeaders("https://www.youtube.com"));
+        final var headers = new HashMap<>(getOriginReferrerHeaders("https://www.youtube.com/"));
         headers.putAll(getClientHeaders(WEB_CLIENT_ID, getClientVersion()));
         return headers;
     }
@@ -1152,17 +1175,30 @@ public final class YoutubeParsingHelper {
      * headers set to the given URL.
      *
      * @param url The URL to be set as the origin and referrer.
+     *            Ensure that the URL ends with a slash
      */
     public static Map<String, List<String>> getOriginReferrerHeaders(@Nonnull final String url) {
-        final var urlList = List.of(url);
-        return Map.of("Origin", urlList, "Referer", urlList);
+        return getOriginReferrerHeaders(url.substring(0, url.length() - 1), url);
+    }
+
+    /**
+     * Returns an unmodifiable {@link Map} containing the {@code Origin} and {@code Referer}
+     * headers set to the given URLs.
+     *
+     * @param originUrl  The URL to be set as the origin.
+     * @param refererUrl The URL to be set as the referrer.
+     */
+    public static Map<String, List<String>> getOriginReferrerHeaders(
+            @Nonnull final String originUrl,
+            @Nonnull final String refererUrl) {
+        return Map.of("Origin", List.of(originUrl), "Referer", List.of(refererUrl));
     }
 
     /**
      * Returns an unmodifiable {@link Map} containing the {@code X-YouTube-Client-Name} and
      * {@code X-YouTube-Client-Version} headers.
      *
-     * @param name The X-YouTube-Client-Name value.
+     * @param name    The X-YouTube-Client-Name value.
      * @param version X-YouTube-Client-Version value.
      */
     public static Map<String, List<String>> getClientHeaders(@Nonnull final String name,
@@ -1173,6 +1209,7 @@ public final class YoutubeParsingHelper {
 
     /**
      * Create a map with the required cookie header.
+     *
      * @return A singleton map containing the header.
      */
     public static Map<String, List<String>> getCookieHeader() {
@@ -1351,6 +1388,74 @@ public final class YoutubeParsingHelper {
     }
 
     /**
+     * Pick a valid non-YouTube embedder URL for {@code WEB_EMBEDDED_PLAYER} requests.
+     */
+    @Nonnull
+    public static String getRandomWebEmbeddedPlayerReferer() {
+        return WEB_EMBEDDED_PLAYER_REFERERS[
+                numberGenerator.nextInt(WEB_EMBEDDED_PLAYER_REFERERS.length)];
+    }
+
+    /**
+     * Build the embed URL to use as a referer for {@code WEB_EMBEDDED_PLAYER} requests.
+     *
+     * <p>
+     * The returned URL mirrors the embed URL shape used by the selected embedder.
+     * </p>
+     */
+    @Nonnull
+    public static String buildWebEmbeddedPlayerRefererUrl(@Nonnull final String videoId,
+                                                          @Nonnull final String baseReferer) {
+        if ("https://www.reddit.com/".equals(baseReferer)) {
+            final Map<String, String> queryParameters = new LinkedHashMap<>();
+            queryParameters.put("autoplay", "1");
+            queryParameters.put("playsinline", "1");
+            return Utils.buildUrlWithQueryParameters(
+                    "https://www.youtube-nocookie.com/embed/" + videoId, queryParameters);
+        }
+
+        if ("https://www.quora.com/".equals(baseReferer)) {
+            final Map<String, String> queryParameters = new LinkedHashMap<>();
+            queryParameters.put("enablejsapi", "1");
+            queryParameters.put("iv_load_policy", "3");
+            queryParameters.put("autoplay", "1");
+            return Utils.buildUrlWithQueryParameters(
+                    "https://www.youtube.com/embed/" + videoId, queryParameters);
+        }
+
+        if ("https://x.com/".equals(baseReferer)) {
+            final Map<String, String> queryParameters = new LinkedHashMap<>();
+            queryParameters.put("autoplay", "1");
+            queryParameters.put("auto_play", "true");
+            return Utils.buildUrlWithQueryParameters(
+                    "https://www.youtube.com/embed/" + videoId, queryParameters);
+        }
+
+        if ("https://web.whatsapp.com".equals(baseReferer)) {
+            final Map<String, String> queryParameters = new LinkedHashMap<>();
+            queryParameters.put("cc_load_policy", "1");
+            queryParameters.put("iv_load_policy", "3");
+            queryParameters.put("controls", "0");
+            queryParameters.put("playsinline", "1");
+            queryParameters.put("rel", "0");
+            queryParameters.put("modestbranding", "0");
+            queryParameters.put("autoplay", "1");
+            queryParameters.put("widget_referrer", "https://whatsapp.com");
+            queryParameters.put("origin", "https://web.whatsapp.com");
+            queryParameters.put("enablejsapi", "1");
+            queryParameters.put("widgetid", "1");
+            queryParameters.put("forigin", "https://web.whatsapp.com/");
+            queryParameters.put("aoriginsup", "1");
+            queryParameters.put("gporigin", "https://web.whatsapp.com/");
+            queryParameters.put("vf", "6");
+            return Utils.buildUrlWithQueryParameters(
+                    "https://www.youtube.com/embed/" + videoId, queryParameters);
+        }
+
+        return baseReferer;
+    }
+
+    /**
      * Check if the streaming URL is from the YouTube {@code WEB} client.
      *
      * @param url the streaming URL to be checked.
@@ -1411,8 +1516,8 @@ public final class YoutubeParsingHelper {
     /**
      * Get the value of the consent's acceptance.
      *
-     * @see #setConsentAccepted(boolean)
      * @return the consent's acceptance value
+     * @see #setConsentAccepted(boolean)
      */
     public static boolean isConsentAccepted() {
         return consentAccepted;
@@ -1424,6 +1529,7 @@ public final class YoutubeParsingHelper {
      * The track type is parsed from the {@code xtags} URL parameter
      * (Example: {@code acont=original:lang=en}).
      * </p>
+     *
      * @param streamUrl YouTube stream URL
      * @return {@link AudioTrackType} or {@code null} if no track type was found
      */
@@ -1482,11 +1588,11 @@ public final class YoutubeParsingHelper {
                 .getBytes(StandardCharsets.UTF_8);
 
         final String visitorData = JsonUtils.toJsonObject(getValidJsonResponseBody(getDownloader()
-                .postWithContentTypeJson(
-                        innertubeDomainAndVersionEndpoint
-                                + (useGuideEndpoint ? "guide" : "visitor_id") + "?"
-                                + DISABLE_PRETTY_PRINT_PARAMETER,
-                        httpHeaders, body)))
+                        .postWithContentTypeJson(
+                                innertubeDomainAndVersionEndpoint
+                                        + (useGuideEndpoint ? "guide" : "visitor_id") + "?"
+                                        + DISABLE_PRETTY_PRINT_PARAMETER,
+                                httpHeaders, body)))
                 .getObject("responseContext")
                 .getString("visitorData");
 
@@ -1495,6 +1601,44 @@ public final class YoutubeParsingHelper {
         }
 
         return visitorData;
+    }
+
+    @Nullable
+    public static String fetchWebEmbeddedEncryptedHostFlags(@Nonnull final String videoId,
+                                                            @Nonnull final String originUrl,
+                                                            @Nonnull final String refererUrl)
+            throws ParsingException {
+        final String embedPageContent;
+        try {
+            embedPageContent = getDownloader().get(
+                            "https://www.youtube.com/embed/" + videoId + "?html5=1",
+                            getOriginReferrerHeaders(originUrl, refererUrl),
+                            Localization.DEFAULT)
+                    .responseBody();
+        } catch (final Exception e) {
+            throw new ParsingException("Could not fetch embedded watch page", e);
+        }
+
+        return extractWebEmbeddedEncryptedHostFlagsFromHtml(embedPageContent);
+    }
+
+    @Nullable
+    static String extractWebEmbeddedEncryptedHostFlagsFromHtml(@Nonnull final String html)
+            throws ParsingException {
+        final JsonObject embedInitialData;
+        try {
+            embedInitialData = getEmbedInitialData(html);
+        } catch (final ParsingException e) {
+            return null;
+        }
+
+        try {
+            return JsonUtils.getString(embedInitialData,
+                    "WEB_PLAYER_CONTEXT_CONFIGS.WEB_PLAYER_CONTEXT_CONFIG_ID_EMBEDDED_PLAYER"
+                            + ".encryptedHostFlags");
+        } catch (final ParsingException e) {
+            return null;
+        }
     }
 
     @Nonnull

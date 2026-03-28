@@ -743,7 +743,7 @@ public final class YoutubeDashManifestCreatorsUtils {
             throws CreationException {
         try {
             final var headers = new HashMap<>(
-                    getOriginReferrerHeaders("https://www.youtube.com"));
+                    getOriginReferrerHeaders("https://www.youtube.com/"));
 
             String responseMimeType = "";
 

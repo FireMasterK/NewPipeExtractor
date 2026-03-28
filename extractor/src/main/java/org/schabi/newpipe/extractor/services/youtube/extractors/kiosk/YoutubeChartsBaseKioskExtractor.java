@@ -99,7 +99,7 @@ abstract class YoutubeChartsBaseKioskExtractor extends KioskExtractor<StreamInfo
                 .done())
                 .getBytes(StandardCharsets.UTF_8);
 
-        final var headers = new HashMap<>(getOriginReferrerHeaders("https://charts.youtube.com"));
+        final var headers = new HashMap<>(getOriginReferrerHeaders("https://charts.youtube.com/"));
         headers.putAll(getClientHeaders(innertubeClientRequestInfo.clientInfo.clientId,
                 innertubeClientRequestInfo.clientInfo.clientVersion));
 

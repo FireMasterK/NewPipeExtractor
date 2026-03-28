@@ -410,4 +410,13 @@ public final class Utils {
 
         throw new Parser.RegexException("No regex matched the input on group " + group);
     }
+
+    @Nonnull
+    public static String buildUrlWithQueryParameters(@Nonnull final String baseUrl,
+                                                     @Nonnull final Map<String, String> params) {
+        return baseUrl + "?" + params.entrySet().stream()
+                .map(entry -> encodeUrlUtf8(entry.getKey())
+                        + "=" + encodeUrlUtf8(entry.getValue()))
+                .collect(Collectors.joining("&"));
+    }
 }
