@@ -1382,6 +1382,38 @@ public class YoutubeStreamExtractor extends StreamExtractor {
             streamUrl += "&pot=" + poToken;
         }
 
+        populateItagItemMetadata(itagItem, formatData, itagType, streamUrl);
+
+        final ItagInfo itagInfo = new ItagInfo(streamUrl, itagItem);
+
+        if (streamType == StreamType.VIDEO_STREAM) {
+            itagInfo.setIsUrl(!formatData.getString("type", "")
+                    .equalsIgnoreCase("FORMAT_STREAM_TYPE_OTF"));
+        } else {
+            // Direct URL for all of: currently-running livestreams (cannot
+            // build a stable DASH manifest while segments keep arriving),
+            // audio streams. DASH manifest only for ended livestreams whose
+            // segment list is finite.
+            itagInfo.setIsUrl(streamType != StreamType.POST_LIVE_STREAM);
+        }
+
+        return itagInfo;
+    }
+
+    /**
+     * Populate an {@link ItagItem} with all per-format metadata extracted from a YouTube
+     * {@code adaptiveFormats[]} entry. Shared between the URL-resolved path (used by
+     * {@link #buildAndAddItagInfoToList}) and the SABR metadata-only path (used by
+     * {@link #getAndroidSabrAvailableFormats()}).
+     *
+     * @param streamUrl the resolved stream URL when available; {@code null} for SABR-only
+     *                  formats (the audio track type extraction is skipped in that case)
+     */
+    private void populateItagItemMetadata(
+            @Nonnull final ItagItem itagItem,
+            @Nonnull final JsonObject formatData,
+            @Nonnull final ItagItem.ItagType itagType,
+            @Nullable final String streamUrl) {
         final JsonObject initRange = formatData.getObject("initRange");
         final JsonObject indexRange = formatData.getObject("indexRange");
         final String mimeType = formatData.getString("mimeType", "");
@@ -1408,7 +1440,7 @@ public class YoutubeStreamExtractor extends StreamExtractor {
         if (itagType == ItagItem.ItagType.VIDEO || itagType == ItagItem.ItagType.VIDEO_ONLY) {
             itagItem.setFps(formatData.getInt("fps"));
         } else if (itagType == ItagItem.ItagType.AUDIO) {
-            // YouTube return the audio sample rate as a string
+            // YouTube returns the audio sample rate as a string
             itagItem.setSampleRate(Integer.parseInt(formatData.getString("audioSampleRate")));
             itagItem.setAudioChannels(formatData.getInt("audioChannels",
                     // Most audio streams have two audio channels, so use this value if the real
@@ -1429,34 +1461,74 @@ public class YoutubeStreamExtractor extends StreamExtractor {
                             audioTrackId.substring(0, audioTrackIdLastLocaleCharacter)
                     ).ifPresent(itagItem::setAudioLocale);
                 }
-                itagItem.setAudioTrackType(YoutubeParsingHelper.extractAudioTrackType(streamUrl));
+                if (streamUrl != null) {
+                    itagItem.setAudioTrackType(
+                            YoutubeParsingHelper.extractAudioTrackType(streamUrl));
+                }
             }
 
             itagItem.setAudioTrackName(formatData.getObject("audioTrack")
                     .getString("displayName"));
         }
 
-        // YouTube return the content length and the approximate duration as strings
+        // YouTube returns the content length and the approximate duration as strings
         itagItem.setContentLength(Long.parseLong(formatData.getString("contentLength",
                 String.valueOf(CONTENT_LENGTH_UNKNOWN))));
         itagItem.setApproxDurationMs(Long.parseLong(formatData.getString("approxDurationMs",
                 String.valueOf(APPROX_DURATION_MS_UNKNOWN))));
+    }
 
-        final ItagInfo itagInfo = new ItagInfo(streamUrl, itagItem);
+    /**
+     * Per-format SABR metadata extracted from the ANDROID client's
+     * {@code streamingData.adaptiveFormats[]}, returned even for formats that don't
+     * have a directly-fetchable URL (the SABR-only case).
+     *
+     * <p>NPE's normal {@link #getAudioStreams()} / {@link #getVideoOnlyStreams()} drop
+     * URL-less entries, but the metadata is fully present in the player response.
+     * Consumers driving a SABR session (e.g. Piped-Backend) use this list to populate
+     * the wrapper manifest's Representation entries.</p>
+     *
+     * @return an unmodifiable list of {@link ItagItem}s; empty if the ANDROID client
+     *         wasn't fetched or had no adaptive formats
+     */
+    @Nonnull
+    public List<ItagItem> getAndroidSabrAvailableFormats() {
+        return extractSabrAvailableFormats(androidStreamingData);
+    }
 
-        if (streamType == StreamType.VIDEO_STREAM) {
-            itagInfo.setIsUrl(!formatData.getString("type", "")
-                    .equalsIgnoreCase("FORMAT_STREAM_TYPE_OTF"));
-        } else {
-            // We are currently not able to generate DASH manifests for running
-            // livestreams, so because of the requirements of StreamInfo
-            // objects, return these streams as DASH URL streams (even if they
-            // are not playable).
-            // Ended livestreams are returned as non URL streams
-            itagInfo.setIsUrl(streamType != StreamType.POST_LIVE_STREAM);
+    /**
+     * iOS equivalent of {@link #getAndroidSabrAvailableFormats()}. Useful as a fallback
+     * when the ANDROID client wasn't fetched or didn't carry adaptive formats.
+     */
+    @Nonnull
+    public List<ItagItem> getIosSabrAvailableFormats() {
+        return extractSabrAvailableFormats(iosStreamingData);
+    }
+
+    @Nonnull
+    private List<ItagItem> extractSabrAvailableFormats(
+            @Nullable final JsonObject streamingData) {
+        if (streamingData == null || !streamingData.has(ADAPTIVE_FORMATS)) {
+            return Collections.emptyList();
         }
-
-        return itagInfo;
+        final List<ItagItem> result = new ArrayList<>();
+        streamingData.getArray(ADAPTIVE_FORMATS).streamAsJsonObjects()
+                .filter(fmt -> !fmt.getString("mimeType", "").startsWith("text"))
+                .forEach(fmt -> {
+                    try {
+                        final int itag = fmt.getInt("itag");
+                        final ItagItem itagItem = ItagItem.getItag(itag,
+                                fmt.getInt("averageBitrate"),
+                                fmt.getInt("fps"),
+                                fmt.getString("qualityLabel"),
+                                fmt.getString("mimeType"));
+                        populateItagItemMetadata(itagItem, fmt, itagItem.itagType, null);
+                        result.add(itagItem);
+                    } catch (final Exception ignored) {
+                        // Unsupported itag or missing required field — skip silently
+                    }
+                });
+        return result;
     }
 
 
