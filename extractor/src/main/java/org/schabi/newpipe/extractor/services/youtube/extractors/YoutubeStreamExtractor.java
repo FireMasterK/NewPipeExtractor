@@ -152,6 +152,11 @@ public class YoutubeStreamExtractor extends StreamExtractor {
     @Nullable
     private String iosStreamingUrlsPoToken;
 
+    @Nullable
+    private String androidVideoPlaybackUstreamerConfig;
+    @Nullable
+    private String iosVideoPlaybackUstreamerConfig;
+
     public YoutubeStreamExtractor(final StreamingService service, final LinkHandler linkHandler) {
         super(service, linkHandler);
     }
@@ -697,6 +702,45 @@ public class YoutubeStreamExtractor extends StreamExtractor {
                 getVideoStreamBuilderHelper(true), "video-only");
     }
 
+    // SABR (Server-Adaptive BitRate) metadata exposed for downstream SABR clients.
+    // NPE extracts; clients (e.g. Piped-Backend) own the POST/UMP wire protocol.
+    // All getters are null-safe: missing fields legitimately mean "not SABR" or
+    // "client fetch failed" — not an extraction error.
+
+    @Nullable
+    public String getAndroidServerAbrStreamingUrl() {
+        return androidStreamingData == null
+                ? null
+                : androidStreamingData.getString("serverAbrStreamingUrl", null);
+    }
+
+    @Nullable
+    public String getIosServerAbrStreamingUrl() {
+        return iosStreamingData == null
+                ? null
+                : iosStreamingData.getString("serverAbrStreamingUrl", null);
+    }
+
+    @Nullable
+    public String getAndroidVideoPlaybackUstreamerConfig() {
+        return androidVideoPlaybackUstreamerConfig;
+    }
+
+    @Nullable
+    public String getIosVideoPlaybackUstreamerConfig() {
+        return iosVideoPlaybackUstreamerConfig;
+    }
+
+    @Nullable
+    public String getAndroidCpn() {
+        return androidCpn;
+    }
+
+    @Nullable
+    public String getIosCpn() {
+        return iosCpn;
+    }
+
     @Override
     @Nonnull
     public List<SubtitlesStream> getSubtitlesDefault() throws ParsingException {
@@ -943,6 +987,12 @@ public class YoutubeStreamExtractor extends StreamExtractor {
 
         androidStreamingData = playerResponse.getObject(STREAMING_DATA);
 
+        androidVideoPlaybackUstreamerConfig = playerResponse
+                .getObject("playerConfig")
+                .getObject("mediaCommonConfig")
+                .getObject("mediaUstreamerRequestConfig")
+                .getString("videoPlaybackUstreamerConfig", null);
+
         playerCaptionsTracklistRenderer = playerResponse.getObject(CAPTIONS)
                 .getObject(PLAYER_CAPTIONS_TRACKLIST_RENDERER);
 
@@ -963,6 +1013,12 @@ public class YoutubeStreamExtractor extends StreamExtractor {
 
             if (!isPlayerResponseNotValid(iosPlayerResponse, videoId)) {
                 iosStreamingData = iosPlayerResponse.getObject(STREAMING_DATA);
+
+                iosVideoPlaybackUstreamerConfig = iosPlayerResponse
+                        .getObject("playerConfig")
+                        .getObject("mediaCommonConfig")
+                        .getObject("mediaUstreamerRequestConfig")
+                        .getString("videoPlaybackUstreamerConfig", null);
 
                 if (isNullOrEmpty(playerCaptionsTracklistRenderer)) {
                     playerCaptionsTracklistRenderer = iosPlayerResponse.getObject(CAPTIONS)
