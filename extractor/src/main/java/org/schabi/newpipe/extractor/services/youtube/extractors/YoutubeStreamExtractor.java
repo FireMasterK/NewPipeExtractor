@@ -495,14 +495,14 @@ public class YoutubeStreamExtractor extends StreamExtractor {
             throw new ParsingException("Could not find buttonViewModel's accessibilityText string");
         }
 
-        // The like count is always returned as a number in this element, even for videos with no
-        // likes
+        // The like count is always returned as a number in this element for videos with likes
         try {
             return Long.parseLong(Utils.removeNonDigitCharacters(accessibilityText));
         } catch (final NumberFormatException e) {
-            throw new ParsingException(
-                    "Could not parse \"" + accessibilityText + "\" as a long", e);
+            // If an exception was thrown, the video has zero likes
         }
+
+        return 0;
     }
 
     @Nonnull
